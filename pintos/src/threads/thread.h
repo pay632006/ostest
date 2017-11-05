@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -82,6 +83,7 @@ typedef int tid_t;
    blocked state is on a semaphore wait list. */
 struct thread
   {
+	struct semaphore timer_sema;;
     /* Owned by thread.c. */
     tid_t tid;                          /* Thread identifier. */
     enum thread_status status;          /* Thread state. */
@@ -100,6 +102,10 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+    int64_t wake_up_tick;                /* wake up time in ticks */
+    int64_t sleep_ticks;                /* time to sleep in ticks */
+    struct list_elem timer_elem;        /* List element for timer_wait_list. */
+
   };
 
 /* If false (default), use round-robin scheduler.
@@ -137,5 +143,12 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+bool cmp_ticks (const struct list_elem *t1,const struct list_elem *t2,void *aux UNUSED);
+/* Compare two threads by their wakeup_time. If wakeup_time
+    same, compare thread priorities to break the tie.
+   If true, first thread has earlier wakeup_time and in case of
+    a tie, higher priority. */
+bool less_wakeup (const struct list_elem *left, const struct list_elem *right, void *aux UNUSED);
 
 #endif /* threads/thread.h */

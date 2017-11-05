@@ -86,7 +86,7 @@ test_sleep (int thread_cnt, int iterations)
       
       t->test = &test;
       t->id = i;
-      t->duration = (i + 1) * 10;
+      t->duration = (i + 2) * 10;
       t->iterations = 0;
 
       snprintf (name, sizeof name, "thread %d", i);

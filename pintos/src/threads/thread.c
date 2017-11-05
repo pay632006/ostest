@@ -470,6 +470,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
+  sema_init (&t->timer_sema, 0);  /* Initialize timer_sema with false.
+                                       Used as a binary semaphore. */
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -585,3 +587,34 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+
+
+bool cmp_ticks (const struct list_elem *t1,const struct list_elem *t2,void *aux UNUSED)
+{
+  struct thread *ta = list_entry(t1, struct thread, elem);
+  struct thread *tb = list_entry(t2, struct thread, elem);
+  if (ta->wake_up_tick < tb->wake_up_tick)
+    {
+      return true;
+    }
+  return false;
+}
+
+
+/* Compare two threads by their wakeup_time. If wakeup_time
+    same, compare thread priorities to break the tie.
+   If true, first thread has earlier wakeup_time and in case of
+    a tie, higher priority. */
+bool
+less_wakeup (const struct list_elem *left,
+ const struct list_elem *right, void *aux UNUSED)
+{
+  const struct thread *tleft = list_entry (left, struct thread, timer_elem);
+  const struct thread *tright = list_entry (right, struct thread, timer_elem);
+
+  if (tleft->wake_up_tick != tright->wake_up_tick)
+    return tleft->wake_up_tick < tright->wake_up_tick;
+  else
+    return tleft->priority > tright->priority;
+}

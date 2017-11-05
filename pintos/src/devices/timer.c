@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/malloc.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -20,6 +21,10 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
+/* List of processes sleeping */
+static struct list timer_wait_list;
+
+
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
@@ -29,6 +34,9 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
+
+static void wake_threads(struct thread *t, void *aux);
+
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
@@ -86,14 +94,23 @@ timer_elapsed (int64_t then)
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
-void
-timer_sleep (int64_t ticks) 
-{
-  int64_t start = timer_ticks ();
 
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks)
-    thread_yield ();
+void
+timer_sleep (int64_t ticks)
+{
+	struct thread *t = thread_current ();
+	ASSERT (intr_get_level () == INTR_ON);
+	 // assign requested sleep time to current thread
+	 t->sleep_ticks = ticks;
+	 // disable interrupts to allow thread blocking
+	 enum intr_level old_level = intr_disable();
+	 // block current thread
+	 thread_block();
+
+	 /* set old interrupt level which was used before the current thread was blocked
+	 to ensure that no other logic crashes */
+	 intr_set_level(old_level);
+
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -159,6 +176,8 @@ timer_ndelay (int64_t ns)
   real_time_delay (ns, 1000 * 1000 * 1000);
 }
 
+
+
 /* Prints timer statistics. */
 void
 timer_print_stats (void) 
@@ -170,8 +189,17 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  ticks++;
-  thread_tick ();
+	struct thread *t;
+
+	  ticks++;
+	  thread_tick ();
+
+	  enum intr_level old_level = intr_disable ();
+	  intr_set_level (old_level);
+	 // Check each thread with wake_threads() after each tick. It is assumed that
+	 // interrupts are disabled  because timer_interrupt() is an interrupt handler.
+	 thread_foreach(wake_threads, 0);
+
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
@@ -244,3 +272,28 @@ real_time_delay (int64_t num, int32_t denom)
   ASSERT (denom % 1000 == 0);
   busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000)); 
 }
+
+/**
+* Function for waking up a sleeping thread. It checks
+* whether a thread is being blocked. If TRUE, then
+* check whether the thread's sleep_ticks has reached 0 or not
+* by decrementing it on each conditional statement.
+* If the thread's sleep_ticks has reached 0, then unblock the
+* sleeping thread.
+*/
+static void
+wake_threads(struct thread *t, void *aux)
+{
+ if(t->status == THREAD_BLOCKED)
+ {
+  if(t->sleep_ticks > 0)
+  {
+   t->sleep_ticks--;
+   if(t->sleep_ticks == 0)
+   {
+    thread_unblock(t);
+   }
+  }
+ }
+}
+
